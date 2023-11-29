@@ -1,0 +1,68 @@
+{{- $root := . -}}
+{{- range $name, $config := .Values.databases }}
+{{- if $.Values.global.teamspace }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+  {{- range $key, $value := $config.labels }}
+    {{ $key }}: {{ $value }}
+  {{- end }}
+    chart: {{ $.Chart.Name }}
+spec:
+  selector:
+    matchLabels:
+    {{- range $key, $value := $config.labels }}
+      {{ $key }}: {{ $value }}
+    {{- end }}
+  {{- range $name, $dbServiceConfig := $.Values.dbServices}}
+  {{- if or (eq (or (index $config.labels "peers") "") (or (index $dbServiceConfig.selectors "peers") "unset selector")) (eq (or (index $config.labels "app") "") (or (index $dbServiceConfig.selectors "app") "unset selector")) }}
+  serviceName: {{ $name }}
+  {{- end }}
+  {{- end }}
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        ad.datadoghq.com/tags: '[{"source":"{{ $.Values.global.source }}","service":"{{ $name }}"}]'
+        cluster-autoscaler.kubernetes.io/safe-to-evict: 'false'
+        config.linkerd.io/proxy-cpu-limit: "2"
+        config.linkerd.io/proxy-cpu-request: "0.2"
+        config.linkerd.io/proxy-memory-limit: 2Gi
+        config.linkerd.io/proxy-memory-request: 256Mi
+      labels:
+      {{- range $key, $value := $config.labels }}
+        {{ $key }}: {{ $value }}
+      {{- end }}
+        chart: {{ $.Chart.Name }}
+    spec:
+      terminationGracePeriodSeconds: {{ $.Values.global.terminationGracePeriodSeconds }}
+      containers:
+        - name: {{ $name }}
+          image: "{{ $config.image.repository }}:{{ $config.image.tag | default "latest" }}"
+          imagePullPolicy: {{ $config.image.pullPolicy }}
+          ports:
+          {{- range $name, $dbServiceConfig := $.Values.dbServices}}
+          {{- if or (eq (or (index $config.labels "peers") "") (or (index $dbServiceConfig.selectors "peers") "unset selector")) (eq (or (index $config.labels "app") "") (or (index $dbServiceConfig.selectors "app") "unset selector")) }}
+          {{- if not $dbServiceConfig.duplicatePort }}
+          - name: {{ $dbServiceConfig.portName }}
+            containerPort: {{ $dbServiceConfig.port }}
+            protocol: TCP
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          resources:
+            {{ $config.resources | toYaml | nindent 12 | trim }}
+      {{- if $config.affinity}}
+      affinity:
+        {{ $config.affinity | toYaml | nindent 8 | trim }}
+      {{- else if $.Values.global.dbAffinity }}
+      affinity:
+        {{ $.Values.global.dbAffinity | toYaml | nindent 8 | trim }}
+      {{- end }}
+{{- end }}
+{{- end }}

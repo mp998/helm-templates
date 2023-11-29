@@ -1,0 +1,39 @@
+{{- range $name, $config := $.Values.services}}
+{{- if $config.ingress }}
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+  - kind: Rule
+  {{- if $.Values.global.teamspace }}
+    match: Host(`{{ $config.ingress.subdomain }}-dev-{{ $.Values.global.namespace }}.{{ $config.ingress.domain | default "divvy.co"}}`) && PathPrefix({{ $config.ingress.path }})
+  {{- else if eq $.Values.global.env "prd" }}
+    match: Host(`{{ $config.ingress.subdomain }}.{{ $config.ingress.domain | default "divvy.co"}}`) && PathPrefix({{ $config.ingress.path }})
+  {{- else }}
+    match: Host(`{{ $config.ingress.subdomain }}-{{ $.Values.global.env }}.{{ $config.ingress.domain | default "divvy.co"}}`) && PathPrefix({{ $config.ingress.path }})
+  {{- end }}
+    priority: {{ $config.ingress.priority }}
+  {{- if $config.ingress.middleware }}
+    middlewares:
+    {{- range $value := $config.ingress.middleware }}
+      - name: {{ $value }}
+        namespace: {{ $.Values.global.namespace }}
+    {{- end }}
+  {{- end }}
+    services:
+    - name: {{ $name }}
+      namespace: {{ $.Values.global.namespace }}
+      passHostHeader: true
+      port: {{ $config.port }}
+      responseForwarding:
+        flushInterval: 100ms
+      weight: 1
+  tls: {}
+{{- end }}
+{{- end }}

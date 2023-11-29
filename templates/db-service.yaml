@@ -1,0 +1,25 @@
+{{- $root := . -}}
+{{- range $name, $config := $.Values.dbServices }}
+{{- if $.Values.global.teamspace }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    service: {{ $name }}
+    chart: {{ $.Chart.Name }}
+spec:
+  type: {{ $config.type }}
+  ports:
+    - port: {{ $config.port }}
+      targetPort: {{ $config.port }}
+      protocol: TCP
+      name: {{ $config.portName }}
+  selector:
+    {{- range $key, $value := $config.selectors }}
+    {{ $key }}: {{ $value }}
+    {{- end }}
+{{- end }}
+{{- end }}

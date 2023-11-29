@@ -1,0 +1,21 @@
+{{- $root := . -}}
+{{- range $name, $config := .Values.deployables }}
+{{- if not $.Values.global.teamspace }}
+{{- if hasKey $config "hpa" }}
+---
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: {{ $config.controller }}
+    name: {{ $name }}
+  minReplicas: {{ $config.hpa.min }}
+  maxReplicas: {{ $config.hpa.max }}
+  targetCPUUtilizationPercentage: {{ $config.hpa.targetCpuPercentage }}
+{{- end }}
+{{- end }}
+{{- end }}

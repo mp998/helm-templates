@@ -1,0 +1,18 @@
+{{- range $key, $value := .Values.volumes.mounts.pvc }}
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+    name: {{ $value }}
+    {{- if eq $.Values.general.controller "deployment"}}
+    labels:
+      openebs.io/target-affinity: {{ $value }}
+    {{- end}}
+spec:
+  storageClassName: openebs-hostpath
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ $.Values.volumes.resources.storage }}
+{{- end }}

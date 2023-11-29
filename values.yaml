@@ -1,0 +1,107 @@
+##
+## See teamspace/financing/helm/values.yaml for more documentation
+
+# Deployables
+#
+# Configuration for entities to be deployed to our cluster
+deployables:
+  # main backend service deployment config
+  {{ env "RELEASE_NAME" }}:
+    controller: deployment               # (required) supported controller types: ["deployment", "statefulset", "cronjob"]
+    labels:                               # lables are used by the service selector to match a deployables to a kubernetes service
+      app: {{ env "RELEASE_NAME" }}
+    envVars:
+      HELLO: world                   # (optional) Set env vars directly on the deployable without using consul
+    resources:                            # declaration of the cpu and memory allocated for each pod
+      requests:
+        cpu: 500m                         # (required) 1 core = 1000m
+        memory: 1024Mi                     # (optional)
+    # pdb:
+    #   minAvailable: 2
+    hpa:
+      min: 3
+      max: 6
+      targetCpuPercentage: 125
+    initContainer:
+      name: db-init
+      command: ['./db_init.sh']
+
+  # pmt-cron1:               # can define multiple deployables
+  #   controller: cronjob
+  #   schedule: 30 * * * *
+  #   envVars:
+  #     MY_ENV_VAR: foo
+  #   resources:
+  #     requests:
+  #       cpu: 250m
+
+# Services
+#
+# Expose an application with service discovery and load-balance across pods
+services:
+  pmt:
+    portName: pmt
+    port: 10000
+    type: ClusterIP
+    selectors:
+      app: {{ env "RELEASE_NAME" }}
+    # ingress:                                    # ingress defines internal cluster routing
+    #   subdomain: app                            # puts the app in app.jediarchives.net
+    #   path: '`/api/v1`'                         # path to your root service endpoint app.jediarchives.net/api/v1
+    #   priority: 150                             # declares the match ordering with a higher priority taking precedence
+
+global:
+  terminationGracePeriodSeconds: 90                     # time in seconds allocated by kubernetes before shutting down the pod
+  namespace: investments                                # This defines the namespace that resources in which deployables and databases will be run.
+
+  envVars:
+    PUID: 1029
+    PGID: 100
+    TZ: America/Denver
+
+  secret:
+    vaultid: "tk66nanizjo7zkyvdiyiqcgm7m"
+    secrets:
+      generalConfig: pmt-beta
+
+  image:
+    repository: registry.gitlab.com/jedi-archives/project-money-tree  # where docker image is stored
+    tag: latest         # docker image is automatically built and pushed to project ecr on merge to master
+    pullPolicy: Always
+
+  # readinessProbe:
+  #   exec:
+  #     command: ["/home/app/bin/ready.bash"]
+  #   initialDelaySeconds: 15
+  #   timeoutSeconds: 3
+  #   periodSeconds: 5
+  #   failureThreshold: 3
+  #   successThreshold: 1
+
+  # livenessProbe:
+  #   exec:
+  #     command: ["/home/app/bin/alive.bash"]
+  #   initialDelaySeconds: 15
+  #   timeoutSeconds: 3
+  #   periodSeconds: 5
+  #   failureThreshold: 3
+  #   successThreshold: 1
+
+  # affinity:                                                   # dictates where pods can be deployed based on node labels as well
+  #   nodeAffinity:                                             # specifies the nodes that the pod can be deployed on
+  #     requiredDuringSchedulingIgnoredDuringExecution:         # makes the nodeAffinity a hard requirement for the pod
+  #       nodeSelectorTerms:
+  #       - matchExpressions:
+  #         - key: zone                                         # key of the label that a node must have to run this pod
+  #           operator: In
+  #           values:
+  #           - dmz                                             # value of the label that a node must have to run this pod
+    podAntiAffinity:                                          # specifies which other pods cannot be run on the same node as pod
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: peers                                        # key of label that other pods cannot have
+            operator: In
+            values:
+            - {{ env "RELEASE_NAME" }}                            # value of label that other pods cannot have
+        topologyKey: kubernetes.io/hostname

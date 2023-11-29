@@ -1,0 +1,236 @@
+{{- $root := . -}}
+{{- range $name, $config := .Values.deployables }}
+{{- if eq $config.controller "deployment" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+  {{- range $key, $value := $config.labels }}
+    {{ $key }}: {{ $value }}
+  {{- end }}
+    chart: {{ $.Chart.Name }}
+spec:
+  selector:
+    matchLabels:
+    {{- range $key, $value := $config.labels }}
+      {{ $key }}: {{ $value }}
+    {{- end }}
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 2
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        ad.datadoghq.com/tags: '[{"source":"{{ $.Values.global.source }}","service":"{{ $name }}"}]'
+        cluster-autoscaler.kubernetes.io/safe-to-evict: 'false'
+        {{- if $.Values.global.teamspace }}
+        config.linkerd.io/proxy-cpu-limit: "2"
+        config.linkerd.io/proxy-cpu-request: "0.2"
+        config.linkerd.io/proxy-memory-limit: 2Gi
+        config.linkerd.io/proxy-memory-request: 256Mi
+        {{- else }}
+        config.linkerd.io/proxy-cpu-limit: "2"
+        config.linkerd.io/proxy-cpu-request: "0.7"
+        config.linkerd.io/proxy-memory-limit: 2Gi
+        config.linkerd.io/proxy-memory-request: 256Mi
+        {{- end }}
+        {{- range $key, $value := $config.annotations }}
+        {{ $key }}: {{ quote $value }}
+        {{- end }}
+      labels:
+      {{- range $key, $value := $config.labels }}
+        {{ $key }}: {{ $value }}
+      {{- end }}
+        chart: {{ $.Chart.Name }}
+    spec:
+      terminationGracePeriodSeconds: {{ $.Values.global.terminationGracePeriodSeconds }}
+      {{- if $config.initContainer }}
+      initContainers:
+        - name: {{ $config.initContainer.name }}
+          {{- if $config.initContainer.image }}
+          image: "{{ $config.initContainer.image.repository }}:{{ $config.initContainer.image.tag | default "latest" }}"
+          {{- else }}
+          image: "{{ $.Values.global.image.repository }}:{{ $.Values.global.image.tag | default "latest" }}"
+          {{- end }}
+          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          {{- if $config.initContainer.command }}
+          command:
+            {{- range $config.initContainer.command }}
+            - {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- if $config.initContainer.args }}
+          args:
+            {{- range $config.initContainer.args }}
+            - {{ . }}
+            {{- end }}
+          {{- end }}
+          env:
+            {{- $envVars := mergeOverwrite (dict) ($.Values.global.envVars | default dict) ($config.envVars | default dict) ($config.initContainer.envVars | default dict)}}
+            {{- range $key, $value := $envVars}}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- include "k8s.variables" . | nindent 12 }}
+            - name: PROJECT
+              value: {{ $.Chart.Name }}
+          envFrom:
+            {{- $secrets := mergeOverwrite (dict) ($.Values.global.secret.secrets | default dict) }}
+            {{- range $key, $value := $secrets}}
+            - secretRef:
+                name: {{ $.Release.Name }}-{{ $key }}
+            {{- end }}
+      {{- end }}
+      containers:
+        {{- if $config.sidecar }}
+        - name: {{ $config.sidecar.name }}
+          image: "{{ $config.sidecar.image.repository }}:{{ $config.sidecar.image.tag | default "latest" }}"
+          imagePullPolicy: "{{ $.Values.global.image.pullPolicy }}"
+          {{- if $config.sidecar.command }}
+          command:
+            {{- range $config.sidecar.command }}
+            - {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- if $config.sidecar.args }}
+          args:
+            {{- range $config.sidecar.args }}
+            - {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- if $config.sidecar.port }}
+          ports:
+          - containerPort: {{ $config.sidecar.port }}
+          {{- end }}
+          {{- if $config.sidecar.resources }}
+          resources:
+            {{ $config.sidecar.resources | toYaml | nindent 12 | trim }}
+          {{- end }}
+        {{- else if $.Values.global.sidecar }}
+        - name: {{ $.Values.global.sidecar.name }}
+          image: "{{ $.Values.global.sidecar.image.repository }}:{{ $.Values.global.sidecar.image.tag | default "latest" }}"
+          imagePullPolicy: "{{ $.Values.global.image.pullPolicy }}"
+          {{- if $.Values.global.sidecar.command }}
+          command:
+            {{- range $.Values.global.sidecar.command }}
+            - {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- if $.Values.global.sidecar.args }}
+          args:
+            {{- range $.Values.global.sidecar.args }}
+            - {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- if $.Values.global.sidecar.port }}
+          ports:
+          - containerPort: {{ $.Values.global.sidecar.port }}
+          {{- end }}
+          {{- if $.Values.global.sidecar.resources }}
+          resources:
+            {{ $.Values.global.sidecar.resources | toYaml | nindent 12 | trim }}
+          {{- end }}
+        {{- end }}
+        - name: {{ $name }}
+          {{- if $config.image }}
+          image: "{{ $config.image.repository }}:{{ $config.image.tag | default "latest" }}"
+          {{- else }}
+          image: "{{ $.Values.global.image.repository }}:{{ $.Values.global.image.tag | default "latest" }}"
+          {{- end }}
+          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          {{- if $config.command }}
+          command:
+            {{- range $config.command }}
+            - {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- if $config.args }}
+          args:
+            {{- range $config.args }}
+            - {{ . }}
+            {{- end }}
+          {{- end }}
+          env:
+            {{- $envVars := mergeOverwrite (dict) ($.Values.global.envVars | default dict) ($config.envVars | default dict)}}
+            {{- range $key, $value := $envVars}}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- include "k8s.variables" . | nindent 12 }}
+            - name: DEPLOY_VERSION
+              value: "{{ $.Values.global.image.tag }}"
+            - name: PROJECT
+              value: {{ $.Chart.Name }}
+            {{- if $.Values.global.teamspace }}
+            - name: TEAMSPACE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- end }}
+          ports:
+          {{- range $name, $serviceConfig := $.Values.services}}
+          {{- if or (eq (or (index $config.labels "peers") "") (or (index $serviceConfig.selectors "peers") "unset selector")) (eq (or (index $config.labels "app") "") (or (index $serviceConfig.selectors "app") "unset selector")) }}
+          {{- if not $serviceConfig.duplicatePort }}
+          - name: {{ $serviceConfig.portName }}
+          {{- if $serviceConfig.targetPort }}
+            containerPort: {{ $serviceConfig.targetPort }}
+          {{- else }}
+            containerPort: {{ $serviceConfig.port }}
+          {{- end }}
+            protocol: TCP
+          {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- if $config.ports }}
+          {{- range $port := $config.ports}}
+          - name: {{ $port.name }}
+            containerPort: {{ $port.port }}
+            protocol: TCP
+          {{- end }}
+          {{- end }}
+          {{- if $config.readinessProbe }}
+          readinessProbe:
+            {{ $config.readinessProbe| toYaml | nindent 12 | trim }}
+          {{- else if $.Values.global.readinessProbe }}
+          readinessProbe:
+            {{ $.Values.global.readinessProbe| toYaml | nindent 12 | trim }}
+          {{- end }}
+          {{- if $config.livenessProbe}}
+          livenessProbe:
+            {{ $config.livenessProbe| toYaml | nindent 12 | trim }}
+          {{- else if $.Values.global.livenessProbe }}
+          livenessProbe:
+            {{ $.Values.global.livenessProbe | toYaml | nindent 12 | trim }}
+          {{- end }}
+          {{- if $config.startupProbe}}
+          startupProbe:
+            {{ $config.startupProbe| toYaml | nindent 12 | trim }}
+          {{- else if $.Values.global.startupProbe }}
+          startupProbe:
+            {{ $.Values.global.startupProbe | toYaml | nindent 12 | trim }}
+          {{- end }}
+          resources:
+            {{ $config.resources | toYaml | nindent 12 | trim }}
+          {{- if $config.volumeMounts }}
+          volumeMounts:
+            {{ $config.volumeMounts | toYaml | nindent 12 | trim }}
+          {{- end }}
+      serviceAccountName: {{ .Release.Name }}
+      {{- if $config.affinity}}
+      affinity:
+        {{ $config.affinity | toYaml | nindent 8 | trim }}
+      {{- else if $.Values.global.affinity }}
+      affinity:
+        {{ $.Values.global.affinity | toYaml | nindent 8 | trim }}
+      {{- end }}
+      {{- if $config.volumes }}
+      volumes:
+        {{ $config.volumes | toYaml | nindent 8 | trim }}
+      {{- end }}
+{{- end }}
+{{- end }}

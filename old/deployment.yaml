@@ -1,0 +1,137 @@
+{{- if eq .Values.general.controller "deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  annotations:
+    operator.1password.io/auto-restart: "true"
+spec:
+  revisionHistoryLimit: 1
+  replicas: {{ .Values.general.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app: {{ .Release.Name }}
+      openebs.io/target-affinity: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app: {{ .Release.Name }}
+        openebs.io/target-affinity: {{ .Release.Name }}
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      automountServiceAccountToken: true
+      serviceAccount: {{ .Release.Name }}-sa
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: {{ .Release.Name }}
+      initContainers:
+        - name: {{ .Release.Name }}-{{ $config.initContainer.name }}
+          {{- if $config.initContainer.image }}
+          image: "{{ $config.initContainer.image.repository }}:{{ $config.initContainer.image.tag | default "latest" }}"
+          {{- else }}
+          image: "{{ $.Values.general.image.repository }}:{{ $.Values.general.image.tag | default "latest" }}"
+          {{- end }}
+          imagePullPolicy: {{ $.Values.general.image.pullPolicy }}
+          {{- if $config.initContainer.command }}
+          command:
+            {{- range $config.initContainer.command }}
+            - {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- if $config.initContainer.args }}
+          args:
+            {{- range $config.initContainer.args }}
+            - {{ . }}
+            {{- end }}
+          {{- end }}
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            {{- $envVars := mergeOverwrite (dict) ($.Values.general.envVars | default dict) ($.Values.env | default dict) ($config.envVars | default dict) ($config.initContainer.envVars | default dict)}}
+            {{- range $key, $value := $envVars}}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- include "k8s.variables" . | nindent 12 }}
+            - name: APP
+              value: {{ .Release.Name }}
+          envFrom:
+          {{- $secrets := mergeOverwrite (dict) ($.Values.general.secrets | default dict) ($config.secrets | default dict) ($config.initContainer.secrets | default dict)}}
+
+            - secretRef:
+                name: {{ $.Release.Name }}-{{ $key }}
+          {{- end }}
+      {{- end }}
+      containers:
+        - name: {{ .Release.Name }}
+          image: "{{ .Values.general.image.repository }}:{{ .Values.general.image.tag }}"
+          imagePullPolicy: {{ .Values.general.image.pullPolicy }}
+          env:
+            - name: APP
+              value: {{ .Release.Name }}
+            - name: RELEASE_NAME
+              value: {{ .Release.Name }}
+            - name: CRON
+              value: "false"
+            - name: POD_NAME
+              valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.name
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: "{{ $value }}"
+            {{- end }}
+          envFrom:
+          {{- range $key, $value := .Values.secret.secrets }}
+            - secretRef:
+                name: {{ $.Release.Name }}-{{ $key }}
+          {{- end }}
+          ports:
+            - containerPort: {{ .Values.general.ports.containerPort }}
+          securityContext:
+            {{- if .Values.securityContext }}
+            {{ toYaml .Values.securityContext | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            {{- range $key, $value := .Values.containerPath }}
+            - name: {{ $key }}
+              mountPath: {{ $value }}
+            {{- end }}
+      nodeSelector:
+        {{- if .Values.nodeSelector }}
+        {{ toYaml .Values.nodeSelector | nindent 8 }}
+        {{- end }}
+      volumes:
+        {{- range $key, $value := .Values.volumes.mounts.nfs }}
+        - name: {{ $key }}
+          nfs:
+            server: {{ $.Values.volumes.nfsserver }}
+            path: {{ $value }}
+        {{- end }}
+        {{- range $key, $value := .Values.volumes.mounts.local }}
+        - name: {{ $key }}
+          hostPath:
+            path: {{ $value }}
+            type: directory
+        {{- end }}
+        {{- range $key, $value := .Values.volumes.mounts.pvc }}
+        - name: {{ $key }}
+          persistentVolumeClaim:
+            claimName: {{ $value }}
+        {{- end }}
+        {{- range $key, $value := .Values.volumes.mounts.emptydir }}
+        - name: {{ $key }}
+          emptyDir: {}
+        {{- end }}
+{{- end }}

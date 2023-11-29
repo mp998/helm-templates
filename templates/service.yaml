@@ -1,0 +1,40 @@
+# service
+{{- $root := . -}}
+{{- range $name, $config := $.Values.services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    service: {{ $name }}
+    chart: {{ $.Chart.Name }}
+  {{- if $config.annotations }}
+  annotations:
+    {{- range $key, $value := $config.annotations }}
+    {{ $key }}: {{ quote $value }}
+    {{- end }}
+  {{- end }}
+spec:
+  type: {{ $config.type }}
+{{- if $config.headless }}
+  clusterIP: None
+{{- end }}
+  ports:
+    - port: {{ $config.port }}
+    {{- if eq $config.type "NodePort"}}
+      nodePort: {{ $config.nodePort }}
+    {{- end }}
+    {{- if $config.targetPort }}
+      targetPort: {{ $config.targetPort }}
+    {{- else }}
+      targetPort: {{ $config.port }}
+    {{- end }}
+      protocol: TCP
+      name: {{ $config.portName }}
+  selector:
+    {{- range $key, $value := $config.selectors }}
+    {{ $key }}: {{ $value }}
+    {{- end }}
+{{- end }}

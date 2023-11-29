@@ -1,0 +1,62 @@
+{{- range $name, $config := .Values.cron }}
+---        
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: "cron-{{ $name }}-{{ $.Release.Name }}"
+spec:
+  schedule: {{ $config.schedule | quote }}
+  concurrencyPolicy: {{ $config.concurrencyPolicy | default "Forbid" }}
+  startingDeadlineSeconds: {{ $config.startingDeadlineSeconds | default "600" }}
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  suspend: {{ $config.suspend | default "false" }}
+  jobTemplate:
+    spec:
+      {{- if $config.backoffLimit }}
+      backoffLimit: {{ $config.backoffLimit }}
+      {{- end }}
+      template:
+        spec:
+          imagePullSecrets:
+            - name: regcred
+          containers:
+          - name: {{ $name }}
+            {{- if $config.image }}
+            image: "{{ $config.image.repository }}:{{ $config.image.tag | default "latest" }}"
+            {{- else }}
+            image: "{{ $.Values.general.image.repository }}:{{ $.Values.general.image.tag | default "latest" }}"
+            {{- end }}
+            imagePullPolicy: {{ $.Values.general.image.pullPolicy }}
+            env: 
+              - name: CRON
+                value: "true"
+              - name: RELEASE_NAME
+                value: {{ $.Release.Name }}
+              {{- range $key, $value := $.Values.env }}
+              - name: {{ $key }}
+                value: "{{ $value }}"
+              {{- end }}
+              {{- range $key, $value := $config.env }}
+              - name: {{ $key }}
+                value: "{{ $value }}"
+              {{- end }}
+            envFrom:
+            {{- range $key, $value := $.Values.secret.secrets }}
+              - secretRef:
+                  name: {{ $.Release.Name }}-{{ $key }}
+            {{- end }}
+            {{ if $config.command -}}
+            command:
+              {{- range $config.command }}
+              - {{ . }}
+              {{- end }}
+            {{- end }}
+            {{ if $config.args -}}
+            args:
+              {{- range $config.args }}
+              - {{ . }}
+              {{- end }}
+            {{- end }}
+          restartPolicy: OnFailure
+{{- end }}

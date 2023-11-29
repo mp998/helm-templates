@@ -1,0 +1,23 @@
+{{- $root := . -}}
+{{- range $name, $config := .Values.deployables }}
+{{- if not $.Values.global.teamspace }}
+{{- if hasKey $config "pdb" }}
+---
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.global.namespace }}
+  labels:
+    app: {{ $name}}
+{{ include "project.labels" $root | indent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- range $key, $value := $config.labels }}
+      {{ $key }}: {{ $value }}
+      {{- end }}
+  minAvailable: {{ $config.pdb.minAvailable }}
+{{- end -}}
+{{- end -}}
+{{- end }}

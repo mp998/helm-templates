@@ -1,0 +1,26 @@
+{{- if .Values.ingress }}
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ .Release.Name }}-ingress
+spec:
+  entryPoints:
+    - websecure
+  routes:
+  {{- if .Values.ingress.subdomain }}
+  - match: Host(`{{ .Values.ingress.subdomain }}.{{ .Values.ingress.host }}`)
+    kind: Rule
+    services:
+    - name: {{ .Release.Name }}-service
+      port: {{ .Values.general.ports.containerPort }}
+  {{- end }}
+  {{- if .Values.ingress.path }}
+  - match: Host(`{{ .Values.ingress.host }}`) && PathPrefix(`{{ .Values.ingress.path }}`)
+    kind: Rule
+    services:
+    - name: {{ .Release.Name }}-service
+      port: {{ .Values.general.ports.containerPort }}
+  {{- end }}
+  tls:
+    certResolver: {{ .Values.ingress.tls }}
+{{- end }}
